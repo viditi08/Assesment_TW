@@ -3,7 +3,7 @@
 A small web app that:
 - records live mic audio in ~30s chunks
 - transcribes with **Groq Whisper Large v3**
-- generates **exactly 3** live suggestions every ~30s with **Groq GPT-OSS 120B**
+- generates **exactly 3** live suggestions on a timer (default ~60s, configurable) with **Groq GPT-OSS 120B**
 - opens a detailed answer in the right-side chat when you click a suggestion
 - supports free-form chat questions
 - exports the full session (transcript + suggestion batches + chat) with timestamps
@@ -37,8 +37,8 @@ The default strategy is:
 - keep suggestions **varied by type** (question / talking point / answer / fact-check / clarify)
 
 ## Models
-- Transcription: `whisper-large-v3`
-- Suggestions + chat: configurable in **Settings → Chat model** (default `llama-3.3-70b-versatile` from Groq’s model list). For evals that require GPT-OSS 120B, set `openai/gpt-oss-120b` there (full id, not `gpt-oss-120b`).
+- Transcription: `whisper-large-v3` (Groq)
+- Suggestions + chat: **`openai/gpt-oss-120b`** by default (same Groq model for both; editable under **Settings → Chat model**). Use the full id, not `gpt-oss-120b`.
 
 ## Export format
 The **Export** button downloads a JSON file:

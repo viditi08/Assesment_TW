@@ -1,4 +1,5 @@
 import { normalizeGroqChatModelId } from '../app/settings'
+import { prepareAudioFileForGroq } from './audioUpload'
 
 type ChatMessageParam = {
   role: 'system' | 'user' | 'assistant'
@@ -43,20 +44,79 @@ function buildGroqChatPayload(args: {
   })
 }
 
-function formatGroqChatError(status: number, raw: string, model?: string): string {
-  let detail = raw.slice(0, 2000)
+function parseGroqErrorBody(raw: string): { message: string; code?: string; type?: string } {
+  let message = raw.slice(0, 2000)
+  let code: string | undefined
+  let type: string | undefined
   try {
-    const j = JSON.parse(raw) as { error?: { message?: string } }
-    if (j.error?.message) detail = j.error.message
+    const j = JSON.parse(raw) as { error?: { message?: string; code?: string; type?: string } }
+    if (j.error?.message) message = j.error.message
+    code = j.error?.code
+    type = j.error?.type
   } catch {
     // keep raw snippet
   }
+  return { message, code, type }
+}
+
+/** Daily token (TPD) or org quota — retrying immediately usually wastes more quota. */
+export function isGroqTokenDailyLimitResponse(raw: string): boolean {
+  const { message, code, type } = parseGroqErrorBody(raw)
+  if (code === 'rate_limit_exceeded' && type === 'tokens') return true
+  if (/tokens per day \(TPD\)|TPD:/i.test(message)) return true
+  return false
+}
+
+/** Match on thrown `Error.message` text (formatted by `formatGroqChatError`), not raw JSON. */
+export function groqErrorMessageLooksLikeDailyTokenLimit(message: string): boolean {
+  if (/Groq token limit \(TPD\)/i.test(message)) return true
+  if (/tokens per day \(TPD\)/i.test(message)) return true
+  return false
+}
+
+/** One-line status + full text for tooltip (header) when suggestion refresh fails. */
+export function summarizeSuggestionRefreshError(err: unknown): { line: string; full: string } {
+  const inner = err instanceof Error ? err.message : String(err)
+  const full = `Suggestion refresh failed: ${inner}`
+  if (groqErrorMessageLooksLikeDailyTokenLimit(inner)) {
+    return {
+      full,
+      line:
+        'Suggestion refresh failed: Groq daily token limit (TPD) — wait until it resets, turn off auto-refresh & refresh manually, lower context/max tokens & reasoning in Settings, or upgrade billing. (Switching model is optional if your assignment allows.)',
+    }
+  }
+  if (/^Groq 429|rate limit|too many requests/i.test(inner) || /429 \(rate limited\)/i.test(inner)) {
+    return {
+      full,
+      line:
+        'Suggestion refresh failed: Groq rate limited — increase the auto-refresh interval in Settings or try again shortly.',
+    }
+  }
+  if (full.length > 220) {
+    return { full, line: `${full.slice(0, 217)}…` }
+  }
+  return { full, line: full }
+}
+
+function formatGroqChatError(status: number, raw: string, model?: string): string {
+  const { message: detail } = parseGroqErrorBody(raw)
+
+  if (isGroqTokenDailyLimitResponse(raw)) {
+    return [
+      `Groq token limit (TPD) for model "${model ?? '?'}": ${detail}`,
+      ``,
+      `Ways to continue (same model): wait until the window resets; disable auto-refresh and use Refresh only when needed; lower suggestions/chat max tokens and context sizes; set reasoning to low if using GPT-OSS; upgrade at https://console.groq.com/settings/billing . Optional: use a lighter model in Settings only if your requirements allow.`,
+    ].join('\n')
+  }
+
   if (status === 404) {
     return `Groq 404 for model "${model ?? '?'}": ${detail}. This usually means the model id is wrong or your key cannot access it yet. Open https://console.groq.com/docs/models or use Settings → List models, then paste an exact id (e.g. llama-3.3-70b-versatile or openai/gpt-oss-120b).`
   }
+
   if (status === 429) {
-    return `Groq 429 (rate limited): ${detail}. Wait a bit, reduce how often suggestions refresh in Settings, or upgrade limits at https://console.groq.com/`
+    return `Groq 429 (rate limited): ${detail}. Wait, reduce auto-refresh in Settings, or see https://console.groq.com/settings/billing`
   }
+
   return `Groq chat error (${status}): ${detail}`
 }
 
@@ -155,6 +215,10 @@ export async function groqChatCompletion(args: {
     lastRaw = await res.text()
     lastStatus = res.status
 
+    if (!res.ok && isGroqTokenDailyLimitResponse(lastRaw)) {
+      throw new Error(formatGroqChatError(res.status, lastRaw, model))
+    }
+
     if (res.status === 429 && attempt < maxAttempts) {
       await sleep(backoffMsAfter429(attempt, res.headers.get('retry-after')))
       continue
@@ -187,11 +251,14 @@ export async function groqChatCompletionSuggestionsJson(args: {
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e)
     if (/404|does not exist|not have access/i.test(m)) throw e
-    // Second request would worsen 429 bursts; JSON retry is only for non-rate-limit API errors.
-    if (/429|rate limit|too many requests/i.test(m)) throw e
+    // Second request would worsen 429 / TPD bursts; JSON retry is only for non-quota API errors.
+    if (/429|rate limit|too many requests|Groq token limit \(TPD\)|tokens per day/i.test(m)) throw e
     return await groqChatCompletion({ ...args, responseFormat: undefined })
   }
 }
+
+/** Skip chunks too small to be a valid media container (avoids Groq "valid media file" errors). */
+const MIN_TRANSCRIBE_BYTES = 512
 
 export async function groqTranscribe(args: {
   apiKey: string
@@ -199,10 +266,21 @@ export async function groqTranscribe(args: {
   model: 'whisper-large-v3'
   language?: string
   prompt?: string
+  /** From `MediaRecorder.mimeType` when `blob.type` is empty (common on Safari). */
+  mimeTypeHint?: string
 }): Promise<string> {
+  if (args.audioBlob.size < MIN_TRANSCRIBE_BYTES) {
+    return ''
+  }
+
+  const file = await prepareAudioFileForGroq(args.audioBlob, args.mimeTypeHint)
+  if (!file) {
+    return ''
+  }
+
   const buildFormData = () => {
     const fd = new FormData()
-    fd.append('file', args.audioBlob, 'audio.webm')
+    fd.append('file', file)
     fd.append('model', args.model)
     if (args.language) fd.append('language', args.language)
     if (args.prompt) fd.append('prompt', args.prompt)
@@ -222,20 +300,24 @@ export async function groqTranscribe(args: {
       body: buildFormData(),
     })
 
+    if (res.ok) {
+      const json = (await res.json()) as { text?: string }
+      return json.text ?? ''
+    }
+
+    lastText = await safeReadText(res)
+    lastStatus = res.status
+
+    if (res.status === 429 && isGroqTokenDailyLimitResponse(lastText)) {
+      throw new Error(formatGroqChatError(res.status, lastText, args.model))
+    }
+
     if (res.status === 429 && attempt < maxAttempts) {
-      await res.text()
       await sleep(backoffMsAfter429(attempt, res.headers.get('retry-after')))
       continue
     }
 
-    if (!res.ok) {
-      lastText = await safeReadText(res)
-      lastStatus = res.status
-      throw new Error(`Groq transcription error (${res.status}): ${lastText}`)
-    }
-
-    const json = (await res.json()) as { text?: string }
-    return json.text ?? ''
+    throw new Error(`Groq transcription error (${res.status}): ${lastText}`)
   }
 
   throw new Error(`Groq transcription error (${lastStatus}): ${lastText}`)
@@ -275,20 +357,22 @@ export function groqCreateChatCompletionStream(args: {
         },
         body: bodyStr,
       })
-      if (r.status === 429 && attempt < maxAttempts) {
-        await r.text()
-        await sleep(backoffMsAfter429(attempt, r.headers.get('retry-after')))
-        continue
+      if (!r.ok) {
+        const text = await safeReadText(r)
+        if (isGroqTokenDailyLimitResponse(text)) {
+          throw new Error(formatGroqChatError(r.status, text, model))
+        }
+        if (r.status === 429 && attempt < maxAttempts) {
+          await sleep(backoffMsAfter429(attempt, r.headers.get('retry-after')))
+          continue
+        }
+        throw new Error(formatGroqChatError(r.status, text, model))
       }
       res = r
       break
     }
 
     if (!res) throw new Error('Groq stream: no response')
-    if (!res.ok) {
-      const text = await safeReadText(res)
-      throw new Error(formatGroqChatError(res.status, text, model))
-    }
     if (!res.body) throw new Error('No response body.')
 
     const reader = res.body.getReader()

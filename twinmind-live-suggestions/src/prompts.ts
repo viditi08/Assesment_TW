@@ -90,13 +90,14 @@ function clipChatHistory(chat: ChatMessage[], maxMessages: number) {
 }
 
 function formatTranscriptWindow(chunks: TranscriptChunk[], maxChars: number) {
-  if (maxChars <= 0) return ''
+  const cap = Math.max(0, Math.floor(Number(maxChars) || 0))
+  if (cap <= 0) return ''
   const lines: string[] = []
   for (const c of chunks) {
     lines.push(`[${c.startedAt} → ${c.endedAt}] ${c.text}`)
   }
   const joined = lines.join('\n')
-  if (joined.length <= maxChars) return joined
-  return joined.slice(joined.length - maxChars)
+  if (joined.length <= cap) return joined
+  return joined.slice(joined.length - cap)
 }
 

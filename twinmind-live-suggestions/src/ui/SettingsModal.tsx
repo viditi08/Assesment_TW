@@ -72,13 +72,13 @@ export function SettingsModal(props: {
                   onBlur={() =>
                     props.onChange({ ...local, groqChatModel: normalizeGroqChatModelId(local.groqChatModel) })
                   }
-                  placeholder="llama-3.3-70b-versatile"
+                  placeholder="openai/gpt-oss-120b"
                 />
               </label>
               <div className="tmSubtleSmall">
-                Used for live suggestions + chat. Must match an id from Groq (use List models). Default:{' '}
-                <code className="tmInlineCode">llama-3.3-70b-versatile</code>. For GPT-OSS use{' '}
-                <code className="tmInlineCode">openai/gpt-oss-120b</code> (never <code className="tmInlineCode">gpt-oss-120b</code> alone).
+                Used for live suggestions + chat (one model). Default:{' '}
+                <code className="tmInlineCode">openai/gpt-oss-120b</code> — always use the full id (never{' '}
+                <code className="tmInlineCode">gpt-oss-120b</code> alone). Use List models to confirm your key has access.
               </div>
               <div className="tmRow">
                 <button

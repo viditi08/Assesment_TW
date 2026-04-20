@@ -82,8 +82,20 @@ body {
   text-overflow: ellipsis;
 }
 
-.tmStatus {
+.tmStatusRow {
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.tmStatusRowInfo {
   color: var(--faint);
+}
+
+.tmStatusRowErr {
+  color: var(--danger);
 }
 
 .tmMain {

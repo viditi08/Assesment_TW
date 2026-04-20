@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import './app.css'
 import {
   buildDefaultSettings,
@@ -14,7 +15,9 @@ import { exportSessionJson } from './lib/export'
 import {
   groqChatCompletionSuggestionsJson,
   groqCreateChatCompletionStream,
+  groqErrorMessageLooksLikeDailyTokenLimit,
   groqTranscribe,
+  summarizeSuggestionRefreshError,
 } from './lib/groq'
 import { parseSuggestionsModelOutput } from './lib/suggestionsResponse'
 import { useMicRecorder } from './lib/useMicRecorder'
@@ -39,10 +42,14 @@ export default function App() {
   const [chat, setChat] = useState<ChatMessage[]>([])
 
   const [status, setStatus] = useState<string | null>(null)
+  /** Full message for `title` tooltip when the line is shortened (e.g. Groq errors). */
+  const [statusTitle, setStatusTitle] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isChatBusy, setIsChatBusy] = useState(false)
 
   const lastRefreshedChunkIdRef = useRef<string | null>(null)
+  /** Skip auto suggestion refresh after daily-token (TPD) errors — manual Refresh still runs. */
+  const pauseAutoSuggestionsUntilRef = useRef(0)
   const transcriptRef = useRef<TranscriptChunk[]>([])
   useEffect(() => {
     transcriptRef.current = transcript
@@ -56,36 +63,58 @@ export default function App() {
     [settings.groqChatModel],
   )
 
+  const showStatus = useCallback((line: string, detail?: string) => {
+    setStatus(line)
+    setStatusTitle(detail ?? line)
+  }, [])
+
+  const clearStatus = useCallback(() => {
+    setStatus(null)
+    setStatusTitle(null)
+  }, [])
+
   const onChunk = useCallback(
-    async (chunk: Blob, chunkStartedAt: string, chunkEndedAt: string) => {
+    async (chunk: Blob, chunkStartedAt: string, chunkEndedAt: string, recorderMimeType: string) => {
       if (!hasKey) return
       try {
-        setStatus('Transcribing…')
+        showStatus('Transcribing…')
         const text = await groqTranscribe({
           apiKey,
           audioBlob: chunk,
           model: 'whisper-large-v3',
           language: settings.transcriptionLanguage || undefined,
           prompt: settings.transcriptionPrompt || undefined,
+          mimeTypeHint: recorderMimeType,
         })
 
         const cleaned = text.trim()
         if (!cleaned) {
-          setStatus(null)
+          clearStatus()
           return
         }
 
         const chunkId = crypto.randomUUID()
-        setTranscript((prev) => [
-          ...prev,
-          { id: chunkId, startedAt: chunkStartedAt, endedAt: chunkEndedAt, text: cleaned },
-        ])
-        setStatus(null)
+        const newChunk = {
+          id: chunkId,
+          startedAt: chunkStartedAt,
+          endedAt: chunkEndedAt,
+          text: cleaned,
+        }
+        // Commit before returning to the recorder so `await mic.flush()` + suggestion refresh see latest text.
+        flushSync(() => {
+          setTranscript((prev) => {
+            const next = [...prev, newChunk]
+            transcriptRef.current = next
+            return next
+          })
+        })
+        clearStatus()
       } catch (e) {
-        setStatus(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`)
+        const msg = e instanceof Error ? e.message : String(e)
+        showStatus(`Transcription failed: ${msg}`, `Transcription failed: ${msg}`)
       }
     },
-    [apiKey, hasKey, settings.transcriptionLanguage, settings.transcriptionPrompt],
+    [apiKey, clearStatus, hasKey, settings.transcriptionLanguage, settings.transcriptionPrompt, showStatus],
   )
 
   const mic = useMicRecorder({
@@ -97,13 +126,17 @@ export default function App() {
   const refreshSuggestions = useCallback(
     async (opts?: { flushFirst?: boolean; reason?: 'auto' | 'manual' }) => {
       if (!hasKey) {
-        setStatus('Add a Groq API key in Settings to start.')
+        showStatus('Add a Groq API key in Settings to start.')
         return
       }
       if (isRefreshing) return
 
-      setIsRefreshing(true)
       const reason = opts?.reason ?? 'manual'
+      if (reason === 'auto' && Date.now() < pauseAutoSuggestionsUntilRef.current) {
+        return
+      }
+
+      setIsRefreshing(true)
       try {
         if (opts?.flushFirst) {
           await mic.flush()
@@ -115,7 +148,7 @@ export default function App() {
           return
         }
 
-        setStatus('Generating suggestions…')
+        showStatus('Generating suggestions…')
         const prompt = buildSuggestionPrompt({
           settings,
           transcript: tNow,
@@ -154,17 +187,23 @@ export default function App() {
 
         setSuggestionBatches((prev) => [batch, ...prev])
         lastRefreshedChunkIdRef.current = latestChunkId
-        setStatus(null)
+        pauseAutoSuggestionsUntilRef.current = 0
+        clearStatus()
       } catch (e) {
-        setStatus(`Suggestion refresh failed: ${e instanceof Error ? e.message : String(e)}`)
+        const { line, full } = summarizeSuggestionRefreshError(e)
+        showStatus(line, full)
+        const inner = e instanceof Error ? e.message : String(e)
+        if (groqErrorMessageLooksLikeDailyTokenLimit(inner)) {
+          pauseAutoSuggestionsUntilRef.current = Date.now() + 7 * 60 * 1000
+        }
       } finally {
         setIsRefreshing(false)
       }
     },
-    [apiKey, chatModel, hasKey, isRefreshing, mic, settings],
+    [apiKey, chatModel, clearStatus, hasKey, isRefreshing, mic, settings, showStatus],
   )
 
-  // Auto-refresh suggestions roughly every 30s (configurable).
+  // Auto-refresh suggestions on an interval (default ~60s; configurable in Settings).
   useEffect(() => {
     if (!hasKey) return
     if (!settings.autoRefreshEnabled) return
@@ -174,8 +213,8 @@ export default function App() {
     return () => window.clearInterval(handle)
   }, [hasKey, refreshSuggestions, settings.autoRefreshEnabled, settings.autoRefreshMs])
 
-  // After new transcript: debounce so we don't stack requests (Whisper + suggestions → 429).
-  const SUGGESTIONS_AFTER_TRANSCRIPT_DEBOUNCE_MS = 5000
+  // After new transcript: debounce so we don't stack requests (Whisper + interval → 429 / TPD).
+  const SUGGESTIONS_AFTER_TRANSCRIPT_DEBOUNCE_MS = 10_000
   useEffect(() => {
     if (!hasKey) return
     if (!settings.autoRefreshEnabled) return
@@ -191,13 +230,13 @@ export default function App() {
       const trimmed = userText.trim()
       if (!trimmed) return
       if (!hasKey) {
-        setStatus('Add a Groq API key in Settings to chat.')
+        showStatus('Add a Groq API key in Settings to chat.')
         return
       }
       if (isChatBusy) return
 
       setIsChatBusy(true)
-      setStatus(null)
+      clearStatus()
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -251,7 +290,7 @@ export default function App() {
         setIsChatBusy(false)
       }
     },
-    [apiKey, chat, chatModel, hasKey, isChatBusy, settings, transcript],
+    [apiKey, chat, chatModel, clearStatus, hasKey, isChatBusy, settings, transcript, showStatus],
   )
 
   const onSuggestionClick = useCallback(
@@ -277,7 +316,7 @@ export default function App() {
 
       setChat((prev) => [...prev, userMsg, assistantMsg])
       setIsChatBusy(true)
-      setStatus(null)
+      clearStatus()
 
       try {
         const messages = buildExpandedAnswerPrompt({
@@ -313,7 +352,7 @@ export default function App() {
         setIsChatBusy(false)
       }
     },
-    [apiKey, chat, chatModel, settings, transcript],
+    [apiKey, chat, chatModel, clearStatus, settings, transcript],
   )
 
   const onExport = useCallback(() => {
@@ -364,8 +403,17 @@ export default function App() {
             ) : (
               <strong>Paste your Groq API key in Settings</strong>
             )}
-            {status ? <span className="tmStatus"> · {status}</span> : null}
           </div>
+          {status ? (
+            <div
+              className={
+                status.includes('failed') ? 'tmStatusRow tmStatusRowErr' : 'tmStatusRow tmStatusRowInfo'
+              }
+              title={statusTitle ?? status}
+            >
+              {status}
+            </div>
+          ) : null}
         </div>
         <div className="tmHeaderCenter">
           <button
@@ -385,7 +433,11 @@ export default function App() {
           <TranscriptPanel transcript={transcript} isRecording={mic.isRecording} />
         </section>
         <section className="tmCol tmColMiddle">
-          <SuggestionsPanel batches={suggestionBatches} onClickSuggestion={onSuggestionClick} />
+          <SuggestionsPanel
+            batches={suggestionBatches}
+            hasTranscript={transcript.length > 0}
+            onClickSuggestion={onSuggestionClick}
+          />
         </section>
         <section className="tmCol tmColRight">
           <ChatPanel messages={chat} onSend={sendChat} isBusy={isChatBusy} />

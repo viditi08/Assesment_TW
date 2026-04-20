@@ -2,6 +2,8 @@ import type { SuggestionBatch, SuggestionCard } from '../domain/suggestions'
 
 export function SuggestionsPanel(props: {
   batches: SuggestionBatch[]
+  /** True when the Transcript column has at least one chunk (drives honest labels vs `basedOnChunkId`). */
+  hasTranscript: boolean
   onClickSuggestion: (s: SuggestionCard) => void
 }) {
   return (
@@ -14,7 +16,7 @@ export function SuggestionsPanel(props: {
       <div className="tmScroll">
         {props.batches.length === 0 ? (
           <div className="tmEmpty">
-            Suggestions will refresh every ~30 seconds (and you can tap Refresh).
+            Suggestions refresh on your interval (Settings) and when you tap Refresh — after transcript text exists.
           </div>
         ) : (
           <div className="tmList tmBatches">
@@ -25,7 +27,7 @@ export function SuggestionsPanel(props: {
                     {new Date(b.createdAt).toLocaleTimeString()}
                   </div>
                   <div className="tmMeta">
-                    {b.basedOnChunkId ? 'Based on latest transcript' : 'No transcript yet'}
+                    {batchTranscriptLabel(b.basedOnChunkId, props.hasTranscript)}
                   </div>
                 </div>
                 <div className="tmSuggestionGrid">
@@ -51,6 +53,12 @@ export function SuggestionsPanel(props: {
       </div>
     </div>
   )
+}
+
+function batchTranscriptLabel(basedOnChunkId: string | null | undefined, hasTranscript: boolean): string {
+  if (basedOnChunkId) return 'Grounded in transcript'
+  if (hasTranscript) return 'Stale batch — tap Refresh to use current transcript'
+  return 'No transcript when this batch ran'
 }
 
 function labelType(t: SuggestionCard['type']) {

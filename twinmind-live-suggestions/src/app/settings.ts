@@ -1,5 +1,5 @@
-/** Default chat model from Groq’s public list (`llama-3.3-70b-versatile`); override in Settings anytime. */
-export const DEFAULT_GROQ_CHAT_MODEL = 'llama-3.3-70b-versatile' as const
+/** Assignment default: GPT-OSS 120B on Groq (`openai/gpt-oss-120b`). Override in Settings if needed. */
+export const DEFAULT_GROQ_CHAT_MODEL = 'openai/gpt-oss-120b' as const
 
 /**
  * Groq model ids are usually `vendor/model`. Short ids like `gpt-oss-120b` return model_not_found.
@@ -14,7 +14,7 @@ export function normalizeGroqChatModelId(raw: string): string {
 
 export type AppSettings = {
   groqApiKey: string
-  /** Groq chat model id from console (e.g. llama-3.3-70b-versatile or openai/gpt-oss-120b). */
+  /** Groq chat model id — default `openai/gpt-oss-120b` for suggestions + chat (same model). */
   groqChatModel: string
   /**
    * For `openai/gpt-oss-*` on Groq only — maps to API `reasoning_effort` (`low` | `medium` | `high`).
@@ -51,15 +51,15 @@ export function buildDefaultSettings(): AppSettings {
   return {
     groqApiKey: '',
     groqChatModel: DEFAULT_GROQ_CHAT_MODEL,
-    groqReasoningEffort: '',
+    groqReasoningEffort: 'medium',
 
     transcriptionChunkMs: 30_000,
     transcriptionLanguage: '',
     transcriptionPrompt: '',
 
     autoRefreshEnabled: true,
-    // Slightly slower default to stay under Groq rate limits alongside transcription.
-    autoRefreshMs: 45_000,
+    // Slower default reduces overlap with transcript-triggered refreshes + Groq TPD on large models.
+    autoRefreshMs: 60_000,
 
     // Keep this modest for latency. The prompt itself teaches the model to be specific.
     suggestionsContextChars: 8_000,
@@ -130,6 +130,16 @@ export function mergeStoredAppSettings(parsed: unknown, initial: AppSettings): A
   const allowedEffort = new Set<AppSettings['groqReasoningEffort']>(['', 'low', 'medium', 'high'])
   const e = merged.groqReasoningEffort
   merged.groqReasoningEffort = allowedEffort.has(e) ? e : initial.groqReasoningEffort
+
+  const clampCtx = (v: unknown, fallback: number) => {
+    const n = Math.floor(Number(v))
+    if (!Number.isFinite(n) || n <= 0) return fallback
+    return Math.min(n, 500_000)
+  }
+  merged.suggestionsContextChars = clampCtx(merged.suggestionsContextChars, initial.suggestionsContextChars)
+  merged.expandedContextChars = clampCtx(merged.expandedContextChars, initial.expandedContextChars)
+  merged.chatContextChars = clampCtx(merged.chatContextChars, initial.chatContextChars)
+
   return merged
 }
 
