@@ -47,6 +47,10 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.tmHeaderTwoCol {
+  grid-template-columns: 1fr auto;
+}
+
 .tmHeaderLeft {
   display: flex;
   flex-direction: column;
@@ -80,6 +84,13 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tmSubtleWrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.35;
 }
 
 .tmStatusRow {
@@ -140,6 +151,12 @@ body {
   font-size: 13px;
 }
 
+.tmPanelTitleCaps {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 11px;
+}
+
 .tmSubtleSmall {
   font-size: 12px;
   color: var(--muted);
@@ -152,6 +169,227 @@ body {
   border: 1px solid var(--border);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.tmPillStrong {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tmCallout {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tmCalloutAccent {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.tmPillStatus {
+  min-width: 7.5rem;
+  text-align: center;
+}
+
+.tmPillStatusIdle {
+  color: var(--faint);
+}
+
+.tmPillStatusLive {
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.tmTranscriptLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: baseline;
+}
+
+.tmTranscriptTime {
+  font-size: 12px;
+  color: var(--faint);
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+.tmTranscriptBody {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre-wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.tmMicRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.tmMicOrb {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid rgba(59, 130, 246, 0.65);
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.35), rgba(37, 99, 235, 0.15));
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.tmMicOrb:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tmMicOrbOn {
+  border-color: rgba(239, 68, 68, 0.75);
+  background: linear-gradient(145deg, rgba(239, 68, 68, 0.35), rgba(185, 28, 28, 0.18));
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
+}
+
+.tmMicOrbInner {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.tmMicOrbOn .tmMicOrbInner {
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+}
+
+.tmMicHint {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.tmMetaSingle {
+  margin-bottom: 4px;
+}
+
+.tmSuggestToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.tmReloadBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tmReloadGlyph {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.tmCountdown {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tmCountdownOff {
+  opacity: 0.65;
+}
+
+.tmSuggestionTypeTag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.tmTagQuestion {
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.tmTagTalking {
+  color: #ddd6fe;
+  background: rgba(139, 92, 246, 0.22);
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.tmTagAnswer {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.tmTagFact {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.tmTagClarify {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+
+.tmBatchFooter {
+  text-align: center;
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--mono);
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.tmBatchMetaRow {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 4px;
+  text-align: center;
+}
+
+.tmChatPlaceholder {
+  margin-top: 8px;
+}
+
+.tmSendBtn {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.28);
+  color: #e8f0ff;
+  font-weight: 600;
+}
+
+.tmSendBtn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.4);
 }
 
 .tmScroll {
@@ -177,6 +415,13 @@ body {
   border: 1px solid var(--border);
   background: var(--panel2);
   border-radius: 12px;
+}
+
+.tmTranscriptPending {
+  font-size: 12px;
+  color: var(--faint);
+  padding: 6px 10px;
+  font-style: italic;
 }
 
 .tmMeta {
@@ -220,6 +465,14 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel2);
+}
+
+.tmBatchOlder {
+  opacity: 0.58;
+}
+
+.tmBatchOlder .tmSuggestionCard {
+  opacity: 0.92;
 }
 
 .tmBatchHeader {

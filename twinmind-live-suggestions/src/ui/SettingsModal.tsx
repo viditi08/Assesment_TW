@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { normalizeGroqChatModelId, type AppSettings } from '../app/settings'
+import { DEFAULT_GROQ_CHAT_MODEL, type AppSettings } from '../app/settings'
 import { groqListModelIds } from '../lib/groq'
 
 export function SettingsModal(props: {
@@ -63,22 +63,10 @@ export function SettingsModal(props: {
                   placeholder="gsk_…"
                 />
               </label>
-              <label className="tmLabel">
-                Chat model (Groq id)
-                <input
-                  className="tmInput"
-                  value={local.groqChatModel}
-                  onChange={(e) => props.onChange({ ...local, groqChatModel: e.target.value })}
-                  onBlur={() =>
-                    props.onChange({ ...local, groqChatModel: normalizeGroqChatModelId(local.groqChatModel) })
-                  }
-                  placeholder="openai/gpt-oss-120b"
-                />
-              </label>
               <div className="tmSubtleSmall">
-                Used for live suggestions + chat (one model). Default:{' '}
-                <code className="tmInlineCode">openai/gpt-oss-120b</code> — always use the full id (never{' '}
-                <code className="tmInlineCode">gpt-oss-120b</code> alone). Use List models to confirm your key has access.
+                Live suggestions, expanded answers, and chat all use the fixed Groq model{' '}
+                <code className="tmInlineCode">{DEFAULT_GROQ_CHAT_MODEL}</code> (assignment requirement — not
+                changeable here).
               </div>
               <div className="tmRow">
                 <button
@@ -105,7 +93,7 @@ export function SettingsModal(props: {
               {modelListError ? <div className="tmErrorSmall">{modelListError}</div> : null}
               {modelListText ? (
                 <label className="tmLabel">
-                  Models (copy one into Chat model)
+                  Models your key can access (reference only)
                   <textarea className="tmTextarea" rows={8} readOnly value={modelListText} />
                 </label>
               ) : null}
@@ -173,8 +161,8 @@ export function SettingsModal(props: {
                 label="Transcription chunk (ms)"
                 value={local.transcriptionChunkMs}
                 onChange={(v) => props.onChange({ ...local, transcriptionChunkMs: v })}
-                min={5_000}
-                step={1_000}
+                min={2_500}
+                step={100}
               />
               <label className="tmLabel">
                 Transcription language (optional)
@@ -189,8 +177,8 @@ export function SettingsModal(props: {
                 label="Auto refresh interval (ms)"
                 value={local.autoRefreshMs}
                 onChange={(v) => props.onChange({ ...local, autoRefreshMs: v })}
-                min={5_000}
-                step={1_000}
+                min={3_000}
+                step={500}
               />
               <label className="tmLabel tmSpan2">
                 Auto refresh enabled

@@ -3,7 +3,7 @@
 A small web app that:
 - records live mic audio in ~30s chunks
 - transcribes with **Groq Whisper Large v3**
-- generates **exactly 3** live suggestions on a timer (default ~60s, configurable) with **Groq GPT-OSS 120B**
+- generates **exactly 3** live suggestions on a timer (default **~30s**, configurable in Settings) with **Groq GPT-OSS 120B** (fixed model)
 - opens a detailed answer in the right-side chat when you click a suggestion
 - supports free-form chat questions
 - exports the full session (transcript + suggestion batches + chat) with timestamps
@@ -38,7 +38,7 @@ The default strategy is:
 
 ## Models
 - Transcription: `whisper-large-v3` (Groq)
-- Suggestions + chat: **`openai/gpt-oss-120b`** by default (same Groq model for both; editable under **Settings → Chat model**). Use the full id, not `gpt-oss-120b`.
+- Suggestions + expanded answers + chat: **`openai/gpt-oss-120b`** only (same Groq model for all; not user-configurable).
 
 ## Export format
 The **Export** button downloads a JSON file:
@@ -46,14 +46,22 @@ The **Export** button downloads a JSON file:
 - `suggestionBatches[]`: newest-first batches, each with 3 cards
 - `chat[]`: continuous chat history for the session
 
-## Deploy
-Any static host works (Netlify / Vercel / Cloudflare Pages):
-- build command: `npm run build`
-- output directory: `dist`
+## Deploy (submit a public URL)
+
+This is a static **Vite** app. Set the project **root** to `twinmind-live-suggestions` if your repo contains other folders.
+
+### Netlify
+1. **New site from Git** → pick the repo.
+2. **Base directory**: `twinmind-live-suggestions`.
+3. Build: `npm run build`, Publish: `dist` (see `netlify.toml`).
+4. Deploy — use the `*.netlify.app` URL (or your custom domain).
+
+### Cloudflare Pages / Replit / etc.
+Same idea: install deps, `npm run build`, serve the `dist` folder as static files.
 
 ## Notes / tradeoffs
-- Chunking uses `MediaRecorder.start(timeslice)` for simple 30s batches. The refresh button also flushes the recorder (`requestData()`) before suggestions.
-- Suggestion generation uses streaming responses but buffers the full text for JSON parsing (simple + robust).
+- Mic segments use **stop/restart `MediaRecorder`** each `transcriptionChunkMs` so each blob is a valid file for Groq Whisper (Chrome-friendly). **Refresh** ends the current segment early (`stop`) then runs suggestions.
+- Suggestions use non-streaming JSON + validation; chat / expanded answers use streaming where applicable.
 
 # React + TypeScript + Vite
 

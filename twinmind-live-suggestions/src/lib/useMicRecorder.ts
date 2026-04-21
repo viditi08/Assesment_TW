@@ -16,6 +16,10 @@ export function useMicRecorder(args: {
     endedAt: string,
     recorderMimeType: string,
   ) => Promise<void> | void
+  /** Fires when a new capture segment begins (after `MediaRecorder.start`). */
+  onSegmentStart?: () => void
+  /** Fires when the segment pipeline ends (after `onChunk` when audio was non-empty, or immediately if empty). */
+  onSegmentEnd?: () => void
 }) {
   const argsRef = useRef(args)
   argsRef.current = args
@@ -81,6 +85,13 @@ export function useMicRecorder(args: {
 
         await new Promise<void>((resolveLoop) => {
           let settled = false
+          let segmentLifecycleOpen = false
+          const closeSegmentLifecycle = () => {
+            if (!segmentLifecycleOpen) return
+            segmentLifecycleOpen = false
+            argsRef.current.onSegmentEnd?.()
+          }
+
           const done = () => {
             if (settled) return
             settled = true
@@ -94,6 +105,7 @@ export function useMicRecorder(args: {
 
           rec.onerror = () => {
             clearSegmentTimer()
+            closeSegmentLifecycle()
             done()
           }
 
@@ -108,6 +120,7 @@ export function useMicRecorder(args: {
                   await Promise.resolve(onChunk(blob, startedAt, endedAt, mime))
                 }
               } finally {
+                closeSegmentLifecycle()
                 currentRecorderRef.current = null
                 recorderRef.current = null
                 done()
@@ -117,6 +130,8 @@ export function useMicRecorder(args: {
 
           try {
             rec.start()
+            argsRef.current.onSegmentStart?.()
+            segmentLifecycleOpen = true
           } catch {
             done()
             return

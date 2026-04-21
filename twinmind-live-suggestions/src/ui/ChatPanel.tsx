@@ -22,13 +22,18 @@ export function ChatPanel(props: {
   return (
     <div className="tmPanel tmPanelChat">
       <div className="tmPanelHeader">
-        <div className="tmPanelTitle">Chat</div>
-        <div className="tmSubtleSmall">{props.isBusy ? 'Thinking…' : ''}</div>
+        <div className="tmPanelTitle tmPanelTitleCaps">3. Chat (detailed answers)</div>
+        <div className="tmPill tmPillStrong">Session-only</div>
       </div>
 
       <div className="tmScroll tmChatScroll">
+        <div className="tmCallout tmCalloutAccent">
+          Clicking a suggestion adds it to this chat and streams a detailed answer (separate prompt, more context).
+          User can also type questions directly. One continuous chat per session — no login, no persistence.
+        </div>
+
         {props.messages.length === 0 ? (
-          <div className="tmEmpty">Click a suggestion, or type a question.</div>
+          <div className="tmEmpty tmChatPlaceholder">Click a suggestion or type a question below.</div>
         ) : (
           <div className="tmChatList">
             {props.messages.map((m) => (
@@ -53,7 +58,7 @@ export function ChatPanel(props: {
           className="tmTextarea"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask a question…"
+          placeholder="Ask anything…"
           rows={3}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -64,7 +69,7 @@ export function ChatPanel(props: {
         />
         <div className="tmChatComposerRow">
           <div className="tmSubtleSmall">Send: Ctrl/⌘ + Enter</div>
-          <button className="tmButton tmButtonPrimary" onClick={() => void send()} disabled={props.isBusy}>
+          <button className="tmButton tmSendBtn" onClick={() => void send()} disabled={props.isBusy}>
             Send
           </button>
         </div>
@@ -72,4 +77,3 @@ export function ChatPanel(props: {
     </div>
   )
 }
-

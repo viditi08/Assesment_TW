@@ -1,4 +1,4 @@
-/** Assignment default: GPT-OSS 120B on Groq (`openai/gpt-oss-120b`). Override in Settings if needed. */
+/** Assignment: fixed Groq chat model for suggestions + expanded answers + chat (not user-configurable). */
 export const DEFAULT_GROQ_CHAT_MODEL = 'openai/gpt-oss-120b' as const
 
 /**
@@ -14,8 +14,6 @@ export function normalizeGroqChatModelId(raw: string): string {
 
 export type AppSettings = {
   groqApiKey: string
-  /** Groq chat model id — default `openai/gpt-oss-120b` for suggestions + chat (same model). */
-  groqChatModel: string
   /**
    * For `openai/gpt-oss-*` on Groq only — maps to API `reasoning_effort` (`low` | `medium` | `high`).
    * Empty = omit parameter (e.g. when using Llama).
@@ -50,16 +48,17 @@ export type AppSettings = {
 export function buildDefaultSettings(): AppSettings {
   return {
     groqApiKey: '',
-    groqChatModel: DEFAULT_GROQ_CHAT_MODEL,
-    groqReasoningEffort: 'medium',
+    /** Lower leaves more completion budget for strict JSON from `openai/gpt-oss-120b`. */
+    groqReasoningEffort: 'low',
 
-    transcriptionChunkMs: 30_000,
+    /** ~4.5s segments: transcript lines (and suggestions) track the mic quickly; raise in Settings if rate limits bite. */
+    transcriptionChunkMs: 4_500,
     transcriptionLanguage: '',
     transcriptionPrompt: '',
 
     autoRefreshEnabled: true,
-    // Slower default reduces overlap with transcript-triggered refreshes + Groq TPD on large models.
-    autoRefreshMs: 60_000,
+    /** Slightly longer than a chunk: backup refresh while recording if a suggestion call was skipped (busy). */
+    autoRefreshMs: 5_000,
 
     // Keep this modest for latency. The prompt itself teaches the model to be specific.
     suggestionsContextChars: 8_000,
@@ -71,7 +70,8 @@ export function buildDefaultSettings(): AppSettings {
     chatPrompt: defaultChatPrompt,
 
     suggestionsTemperature: 0.4,
-    suggestionsMaxTokens: 600,
+    /** GPT-OSS may reserve completion budget for reasoning; keep headroom for full JSON. */
+    suggestionsMaxTokens: 1024,
 
     expandedTemperature: 0.2,
     expandedMaxTokens: 900,
@@ -124,9 +124,9 @@ Rules:
 
 export function mergeStoredAppSettings(parsed: unknown, initial: AppSettings): AppSettings {
   if (!parsed || typeof parsed !== 'object') return initial
-  const merged: AppSettings = { ...initial, ...(parsed as Partial<AppSettings>) }
-  const rawModel = merged.groqChatModel?.trim() || initial.groqChatModel
-  merged.groqChatModel = normalizeGroqChatModelId(rawModel)
+  const raw = parsed as Record<string, unknown>
+  const { groqChatModel: _legacyModelRemoved, ...rest } = raw
+  const merged: AppSettings = { ...initial, ...(rest as Partial<AppSettings>) }
   const allowedEffort = new Set<AppSettings['groqReasoningEffort']>(['', 'low', 'medium', 'high'])
   const e = merged.groqReasoningEffort
   merged.groqReasoningEffort = allowedEffort.has(e) ? e : initial.groqReasoningEffort
@@ -139,6 +139,10 @@ export function mergeStoredAppSettings(parsed: unknown, initial: AppSettings): A
   merged.suggestionsContextChars = clampCtx(merged.suggestionsContextChars, initial.suggestionsContextChars)
   merged.expandedContextChars = clampCtx(merged.expandedContextChars, initial.expandedContextChars)
   merged.chatContextChars = clampCtx(merged.chatContextChars, initial.chatContextChars)
+
+  if (typeof merged.autoRefreshEnabled !== 'boolean') {
+    merged.autoRefreshEnabled = initial.autoRefreshEnabled
+  }
 
   return merged
 }

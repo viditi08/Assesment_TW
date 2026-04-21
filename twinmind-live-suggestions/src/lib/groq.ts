@@ -1,5 +1,6 @@
 import { normalizeGroqChatModelId } from '../app/settings'
 import { prepareAudioFileForGroq } from './audioUpload'
+import { parseSuggestionsModelOutput, type ParsedSuggestions } from './suggestionsResponse'
 
 type ChatMessageParam = {
   role: 'system' | 'user' | 'assistant'
@@ -90,6 +91,13 @@ export function summarizeSuggestionRefreshError(err: unknown): { line: string; f
       full,
       line:
         'Suggestion refresh failed: Groq rate limited — increase the auto-refresh interval in Settings or try again shortly.',
+    }
+  }
+  if (/Could not obtain 3 valid|need 3 valid cards|Suggestions need 3 valid/i.test(inner)) {
+    return {
+      full,
+      line:
+        'Suggestion refresh failed: the model did not return 3 usable cards — try Refresh again, shorten the suggestions prompt/context in Settings, or check your Groq quota.',
     }
   }
   if (full.length > 220) {
@@ -255,6 +263,48 @@ export async function groqChatCompletionSuggestionsJson(args: {
     if (/429|rate limit|too many requests|Groq token limit \(TPD\)|tokens per day/i.test(m)) throw e
     return await groqChatCompletion({ ...args, responseFormat: undefined })
   }
+}
+
+/**
+ * Fetches suggestion JSON and parses to **exactly 3** cards, retrying when the model returns too few / invalid items.
+ */
+export async function groqSuggestionsWithRetries(args: {
+  apiKey: string
+  model: string
+  messages: ChatMessageParam[]
+  temperature: number
+  maxTokens: number
+  reasoningEffort?: GroqReasoningEffort
+}): Promise<ParsedSuggestions> {
+  const base = args.messages
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const messages: ChatMessageParam[] =
+      attempt === 0
+        ? base
+        : [
+            ...base,
+            {
+              role: 'user',
+              content:
+                'Your previous reply failed validation. Output ONLY a JSON object: {"suggestions":[...]} with "suggestions" length EXACTLY 3. Each item: id (string), type (question|talking_point|answer|fact_check|clarify), title, preview (2–4 useful sentences alone), expand_prompt (non-empty string). No markdown fences, no extra text.',
+            },
+          ]
+
+    const text = await groqChatCompletionSuggestionsJson({
+      apiKey: args.apiKey,
+      model: args.model,
+      messages,
+      temperature: args.temperature,
+      maxTokens: args.maxTokens,
+      reasoningEffort: args.reasoningEffort,
+    })
+    try {
+      if (text.trim()) return parseSuggestionsModelOutput(text)
+    } catch {
+      /* try again */
+    }
+  }
+  throw new Error('Could not obtain 3 valid suggestions after retries.')
 }
 
 /** Skip chunks too small to be a valid media container (avoids Groq "valid media file" errors). */
@@ -465,6 +515,7 @@ function textFromStreamDelta(delta: unknown, mode: 'content_only' | 'all'): stri
   return parts.join('')
 }
 
+/** Blocks whose `type` is reasoning/thinking must not be concatenated before JSON parse (GPT-OSS on Groq). */
 function messageContentToPlainText(content: unknown): string {
   if (content == null) return ''
   if (typeof content === 'string') return content
@@ -473,10 +524,31 @@ function messageContentToPlainText(content: unknown): string {
     for (const block of content) {
       if (!block || typeof block !== 'object') continue
       const b = block as Record<string, unknown>
+      const typ = String(b.type ?? '')
+        .toLowerCase()
+        .trim()
+      if (
+        typ === 'reasoning' ||
+        typ === 'thinking' ||
+        typ === 'chain_of_thought' ||
+        typ === 'redacted_reasoning'
+      ) {
+        continue
+      }
       if (typeof b.text === 'string') out.push(b.text)
       else if (typeof b.content === 'string') out.push(b.content)
     }
-    return out.join('')
+    const joined = out.join('')
+    if (joined.trim().length > 0) return joined
+    // Fallback: older APIs with untyped blocks — still avoid leading with obvious non-JSON noise
+    const fallback: string[] = []
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue
+      const b = block as Record<string, unknown>
+      if (typeof b.text === 'string') fallback.push(b.text)
+      else if (typeof b.content === 'string') fallback.push(b.content)
+    }
+    return fallback.join('')
   }
   return ''
 }

@@ -3,8 +3,8 @@ import { flushSync } from 'react-dom'
 import './app.css'
 import {
   buildDefaultSettings,
+  DEFAULT_GROQ_CHAT_MODEL,
   mergeStoredAppSettings,
-  normalizeGroqChatModelId,
   type AppSettings,
 } from './app/settings'
 import { useLocalStorageState } from './app/useLocalStorageState'
@@ -13,13 +13,12 @@ import { type SuggestionBatch, type SuggestionCard } from './domain/suggestions'
 import { type ChatMessage } from './domain/chat'
 import { exportSessionJson } from './lib/export'
 import {
-  groqChatCompletionSuggestionsJson,
   groqCreateChatCompletionStream,
   groqErrorMessageLooksLikeDailyTokenLimit,
+  groqSuggestionsWithRetries,
   groqTranscribe,
   summarizeSuggestionRefreshError,
 } from './lib/groq'
-import { parseSuggestionsModelOutput } from './lib/suggestionsResponse'
 import { useMicRecorder } from './lib/useMicRecorder'
 import { buildSuggestionPrompt, buildChatPrompt, buildExpandedAnswerPrompt } from './prompts'
 import { SettingsModal } from './ui/SettingsModal'
@@ -46,11 +45,22 @@ export default function App() {
   const [statusTitle, setStatusTitle] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isChatBusy, setIsChatBusy] = useState(false)
+  /** Resets the “auto-refresh in Ns” countdown after each successful suggestion run. */
+  const [lastSuggestionSuccessAt, setLastSuggestionSuccessAt] = useState(() => Date.now())
+  const [suggestionCountdownTick, setSuggestionCountdownTick] = useState(0)
 
-  const lastRefreshedChunkIdRef = useRef<string | null>(null)
   /** Skip auto suggestion refresh after daily-token (TPD) errors — manual Refresh still runs. */
   const pauseAutoSuggestionsUntilRef = useRef(0)
   const transcriptRef = useRef<TranscriptChunk[]>([])
+  /** Set after `refreshSuggestions` exists; used from `onChunk` for immediate post-transcript refresh. */
+  const refreshSuggestionsRef = useRef<(opts?: { flushFirst?: boolean; reason?: 'auto' | 'manual' }) => void>(
+    () => {},
+  )
+  /** Prevents overlapping suggestion requests without re-creating `refreshSuggestions` every tick. */
+  const isRefreshingRef = useRef(false)
+  /** True while a mic segment is in flight (capture + Whisper). */
+  const [segmentPipelineBusy, setSegmentPipelineBusy] = useState(false)
+
   useEffect(() => {
     transcriptRef.current = transcript
   }, [transcript])
@@ -58,10 +68,21 @@ export default function App() {
   const apiKey = settings.groqApiKey.trim()
   const hasKey = apiKey.length > 0
 
-  const chatModel = useMemo(
-    () => normalizeGroqChatModelId(settings.groqChatModel),
-    [settings.groqChatModel],
-  )
+  /** Assignment: fixed model for fair comparison across submissions. */
+  const chatModel = DEFAULT_GROQ_CHAT_MODEL
+
+  useEffect(() => {
+    if (!hasKey || !settings.autoRefreshEnabled) return
+    const id = window.setInterval(() => setSuggestionCountdownTick((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [hasKey, settings.autoRefreshEnabled])
+
+  const autoRefreshCountdownSec = useMemo(() => {
+    if (!hasKey || !settings.autoRefreshEnabled) return null
+    void suggestionCountdownTick
+    const elapsed = Date.now() - lastSuggestionSuccessAt
+    return Math.max(0, Math.ceil((settings.autoRefreshMs - elapsed) / 1000))
+  }, [hasKey, settings.autoRefreshEnabled, settings.autoRefreshMs, lastSuggestionSuccessAt, suggestionCountdownTick])
 
   const showStatus = useCallback((line: string, detail?: string) => {
     setStatus(line)
@@ -72,6 +93,9 @@ export default function App() {
     setStatus(null)
     setStatusTitle(null)
   }, [])
+
+  const onSegmentStart = useCallback(() => setSegmentPipelineBusy(true), [])
+  const onSegmentEnd = useCallback(() => setSegmentPipelineBusy(false), [])
 
   const onChunk = useCallback(
     async (chunk: Blob, chunkStartedAt: string, chunkEndedAt: string, recorderMimeType: string) => {
@@ -109,18 +133,34 @@ export default function App() {
           })
         })
         clearStatus()
+
+        if (settings.autoRefreshEnabled) {
+          queueMicrotask(() => {
+            void refreshSuggestionsRef.current({ flushFirst: false, reason: 'auto' })
+          })
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         showStatus(`Transcription failed: ${msg}`, `Transcription failed: ${msg}`)
       }
     },
-    [apiKey, clearStatus, hasKey, settings.transcriptionLanguage, settings.transcriptionPrompt, showStatus],
+    [
+      apiKey,
+      clearStatus,
+      hasKey,
+      settings.autoRefreshEnabled,
+      settings.transcriptionLanguage,
+      settings.transcriptionPrompt,
+      showStatus,
+    ],
   )
 
   const mic = useMicRecorder({
     chunkMs: settings.transcriptionChunkMs,
     onChunk,
     enabled: hasKey,
+    onSegmentStart,
+    onSegmentEnd,
   })
 
   const refreshSuggestions = useCallback(
@@ -129,13 +169,14 @@ export default function App() {
         showStatus('Add a Groq API key in Settings to start.')
         return
       }
-      if (isRefreshing) return
+      if (isRefreshingRef.current) return
 
       const reason = opts?.reason ?? 'manual'
       if (reason === 'auto' && Date.now() < pauseAutoSuggestionsUntilRef.current) {
         return
       }
 
+      isRefreshingRef.current = true
       setIsRefreshing(true)
       try {
         if (opts?.flushFirst) {
@@ -143,10 +184,13 @@ export default function App() {
         }
 
         const tNow = transcriptRef.current
-        const latestChunkId = tNow.at(-1)?.id ?? null
-        if (reason === 'auto' && latestChunkId && latestChunkId === lastRefreshedChunkIdRef.current) {
+        if (reason === 'auto' && tNow.length === 0) {
+          clearStatus()
+          setLastSuggestionSuccessAt(Date.now())
           return
         }
+
+        const latestChunkId = tNow.at(-1)?.id ?? null
 
         showStatus('Generating suggestions…')
         const prompt = buildSuggestionPrompt({
@@ -155,7 +199,7 @@ export default function App() {
           nowIso: new Date().toISOString(),
         })
 
-        const responseText = await groqChatCompletionSuggestionsJson({
+        const parsed = await groqSuggestionsWithRetries({
           apiKey,
           model: chatModel,
           messages: prompt,
@@ -163,12 +207,6 @@ export default function App() {
           maxTokens: settings.suggestionsMaxTokens,
           reasoningEffort: settings.groqReasoningEffort,
         })
-
-        if (!responseText.trim()) {
-          throw new Error('Empty response from model for suggestions.')
-        }
-
-        const parsed = parseSuggestionsModelOutput(responseText)
 
         const cards: SuggestionCard[] = parsed.suggestions.map((s) => ({
           id: s.id,
@@ -186,8 +224,8 @@ export default function App() {
         }
 
         setSuggestionBatches((prev) => [batch, ...prev])
-        lastRefreshedChunkIdRef.current = latestChunkId
         pauseAutoSuggestionsUntilRef.current = 0
+        setLastSuggestionSuccessAt(Date.now())
         clearStatus()
       } catch (e) {
         const { line, full } = summarizeSuggestionRefreshError(e)
@@ -197,33 +235,25 @@ export default function App() {
           pauseAutoSuggestionsUntilRef.current = Date.now() + 7 * 60 * 1000
         }
       } finally {
+        isRefreshingRef.current = false
         setIsRefreshing(false)
       }
     },
-    [apiKey, chatModel, clearStatus, hasKey, isRefreshing, mic, settings, showStatus],
+    [apiKey, chatModel, clearStatus, hasKey, mic, settings, showStatus, setLastSuggestionSuccessAt],
   )
 
-  // Auto-refresh suggestions on an interval (default ~60s; configurable in Settings).
+  refreshSuggestionsRef.current = refreshSuggestions
+
+  // While the mic is on: periodic backup refresh (defaults near chunk length) if a transcript-fired run was skipped.
   useEffect(() => {
     if (!hasKey) return
     if (!settings.autoRefreshEnabled) return
+    if (!mic.isRecording) return
     const handle = window.setInterval(() => {
       void refreshSuggestions({ flushFirst: false, reason: 'auto' })
     }, settings.autoRefreshMs)
     return () => window.clearInterval(handle)
-  }, [hasKey, refreshSuggestions, settings.autoRefreshEnabled, settings.autoRefreshMs])
-
-  // After new transcript: debounce so we don't stack requests (Whisper + interval → 429 / TPD).
-  const SUGGESTIONS_AFTER_TRANSCRIPT_DEBOUNCE_MS = 10_000
-  useEffect(() => {
-    if (!hasKey) return
-    if (!settings.autoRefreshEnabled) return
-    if (transcript.length === 0) return
-    const t = window.setTimeout(() => {
-      void refreshSuggestions({ flushFirst: false, reason: 'auto' })
-    }, SUGGESTIONS_AFTER_TRANSCRIPT_DEBOUNCE_MS)
-    return () => window.clearTimeout(t)
-  }, [hasKey, refreshSuggestions, settings.autoRefreshEnabled, transcript.length])
+  }, [hasKey, mic.isRecording, refreshSuggestions, settings.autoRefreshEnabled, settings.autoRefreshMs])
 
   const sendChat = useCallback(
     async (userText: string) => {
@@ -373,14 +403,6 @@ export default function App() {
 
   const headerRight = (
     <div className="tmHeaderRight">
-      <button
-        className="tmButton"
-        onClick={() => void refreshSuggestions({ flushFirst: true, reason: 'manual' })}
-        disabled={!hasKey || isRefreshing}
-        title="Refresh transcript then suggestions"
-      >
-        {isRefreshing ? 'Refreshing…' : 'Refresh'}
-      </button>
       <button className="tmButton" onClick={onExport} disabled={!transcript.length && !chat.length}>
         Export
       </button>
@@ -392,13 +414,16 @@ export default function App() {
 
   return (
     <div className="tmApp">
-      <header className="tmHeader">
+      <header className="tmHeader tmHeaderTwoCol">
         <div className="tmHeaderLeft">
-          <div className="tmTitle">TwinMind — Live Suggestions (Groq)</div>
+          <div className="tmTitle">TwinMind — Live Suggestions Web App</div>
+          <div className="tmSubtle tmSubtleWrap">
+            3-column layout · Transcript · Live suggestions · Chat
+          </div>
           <div className="tmSubtle">
             {hasKey ? (
               <>
-                Mic: <strong>{mic.isRecording ? 'On' : 'Off'}</strong>
+                Groq key set · Mic: <strong>{mic.isRecording ? 'on' : 'off'}</strong>
               </>
             ) : (
               <strong>Paste your Groq API key in Settings</strong>
@@ -415,28 +440,30 @@ export default function App() {
             </div>
           ) : null}
         </div>
-        <div className="tmHeaderCenter">
-          <button
-            className={mic.isRecording ? 'tmButton tmButtonPrimary' : 'tmButton'}
-            onClick={() => (mic.isRecording ? void mic.stop() : void mic.start())}
-            disabled={!hasKey}
-            title="Start / stop microphone"
-          >
-            {mic.isRecording ? 'Stop Mic' : 'Start Mic'}
-          </button>
-        </div>
         {headerRight}
       </header>
 
       <main className="tmMain">
         <section className="tmCol">
-          <TranscriptPanel transcript={transcript} isRecording={mic.isRecording} />
+          <TranscriptPanel
+            transcript={transcript}
+            isRecording={mic.isRecording}
+            segmentPipelineBusy={segmentPipelineBusy}
+            hasKey={hasKey}
+            chunkMs={settings.transcriptionChunkMs}
+            onToggleMic={() => (mic.isRecording ? void mic.stop() : void mic.start())}
+          />
         </section>
         <section className="tmCol tmColMiddle">
           <SuggestionsPanel
             batches={suggestionBatches}
             hasTranscript={transcript.length > 0}
             onClickSuggestion={onSuggestionClick}
+            onReload={() => void refreshSuggestions({ flushFirst: true, reason: 'manual' })}
+            isReloading={isRefreshing}
+            autoRefreshCountdownSec={autoRefreshCountdownSec}
+            autoRefreshIntervalSec={Math.max(1, Math.round(settings.autoRefreshMs / 1000))}
+            hasKey={hasKey}
           />
         </section>
         <section className="tmCol tmColRight">
