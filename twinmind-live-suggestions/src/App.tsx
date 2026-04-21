@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import './app.css'
+import './App.css'
 import {
   buildDefaultSettings,
   DEFAULT_GROQ_CHAT_MODEL,
