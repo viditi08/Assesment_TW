@@ -35,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       Authorization: `Bearer ${key}`,
       'content-type': req.headers['content-type'] ?? 'application/octet-stream',
     },
-    body,
+    body: new Uint8Array(body),
   })
 
   const text = await upstream.text()
