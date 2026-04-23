@@ -1,138 +1,80 @@
-# TwinMind — Live Suggestions (Groq)
+# TwinMind — Live Suggestions Meeting Copilot (Groq)
 
-A small web app that:
-- records live mic audio in ~30s chunks
-- transcribes with **Groq Whisper Large v3**
-- generates **exactly 3** live suggestions on a timer (default **~30s**, configurable in Settings) with **Groq GPT-OSS 120B** (fixed model)
-- opens a detailed answer in the right-side chat when you click a suggestion
-- supports free-form chat questions
-- exports the full session (transcript + suggestion batches + chat) with timestamps
+A 3‑column meeting copilot that listens to your mic, builds a **live transcript**, and continuously surfaces **exactly 3 high‑value, context-aware suggestions** you can act on during a real conversation.
 
-## Stack
-- Vite + React + TypeScript (client-only)
-- Groq OpenAI-compatible endpoints (browser fetch)
+- **Column 1 — Mic + transcript**: start/stop mic, transcript auto-scrolls as chunks arrive.
+- **Column 2 — Live suggestions**: every refresh produces **exactly 3** actionable cards; newest batch on top; older context stays visible.
+- **Column 3 — Chat**: click a suggestion for a detailed answer (separate prompt) or ask your own question; responses stream for low perceived latency.
 
-## Why client-only?
-The user pastes their **own Groq API key**. This app stores it in `localStorage` and calls Groq directly from the browser. There is no persistence and no server-side key storage.
+## What this demonstrates (interview focus)
+- **Prompt engineering**: structured context windows, strict JSON outputs for suggestions, and separate prompts for preview vs. expanded answers.
+- **Product judgment**: suggestions are designed to be useful *even if you never click* (previews carry value).
+- **Full-stack engineering**: audio chunking strategy, retries/error UX, schema validation, streaming chat, and an exportable session artifact.
 
-## Setup
+## Core features (functional requirements)
+- **Mic + transcript**
+  - Start/stop mic button.
+  - Transcript appends in chunks (segment length is configurable; defaults optimized for responsiveness).
+  - Auto-scrolls to the latest line.
+- **Live suggestions**
+  - Auto refresh while recording (interval configurable).
+  - Manual **Reload suggestions** flushes the current audio segment, then regenerates suggestions.
+  - Each refresh yields **exactly 3** suggestions based on the most recent transcript window.
+  - Suggestions are intended to vary by context: **question**, **talking point**, **answer**, **fact-check**, **clarify**.
+- **Chat**
+  - Clicking a suggestion adds it to chat and returns a detailed, practical answer.
+  - Users can also type questions directly.
+  - Session-only: no login required.
+- **Export**
+  - Export the full session (transcript + every suggestion batch + full chat history) as JSON with timestamps.
+
+## Models (fixed for fair comparison)
+- **Transcription**: Groq Whisper **`whisper-large-v3`**
+- **Suggestions + expanded answers + chat**: Groq **`openai/gpt-oss-120b`**
+
+## Prompt strategy (high-level)
+- **Two-tier UX**:
+  - **Preview cards**: 2–4 sentences, immediately useful, concrete, actionable.
+  - **Expanded answers**: longer-form, structured response with next steps; asks 1–2 targeted questions if context is insufficient.
+- **Context windows (chars, not tokens)**:
+  - Smaller window for suggestions for lower latency.
+  - Larger window for expanded answers and chat for better grounding.
+- **Strict JSON for suggestions**:
+  - Suggestions are requested in JSON and validated before rendering (robust parsing/retries to handle model variance).
+
+## Architecture notes (technical choices)
+- **Audio chunking**: uses *stop/restart* `MediaRecorder` per segment to ensure each blob is a valid media container (Chrome-friendly for Whisper).
+- **Suggestions validation**: parse + validate, then render **exactly 3** cards; retries on invalid output.
+- **Streaming chat**: chat/expanded answers stream to reduce “time to first token”.
+
+## Export format
+The **Export** button downloads JSON:
+- `transcript[]`: `{ id, startedAt, endedAt, text }`
+- `suggestionBatches[]`: newest-first batches, each with 3 cards + timestamps
+- `chat[]`: full chat history for the session
+
+## Run locally
 
 ```bash
-cd twinmind-live-suggestions
 npm install
 npm run dev
 ```
 
-Then open the app, click **Settings**, paste your Groq API key, and start the mic.
+Open the app, click **Settings**, paste your Groq API key, and start the mic.
 
-## Prompts & prompt strategy
-All prompts and key parameters are editable in **Settings**:
-- **Live suggestions prompt**: optimized to produce *3 distinct* suggestion types with previews that are valuable on their own.
-- **Expanded answer prompt**: used when clicking a suggestion; it receives the suggestion’s `expand_prompt` + a larger transcript window.
-- **Chat prompt**: general Q&A with transcript context.
+## Deploy on Vercel
+This repo is a standard **Vite** build.
 
-The default strategy is:
-- keep the *suggestions context window* relatively small for latency (defaults to chars, not tokens)
-- force strict JSON for suggestions and validate it before rendering
-- keep suggestions **varied by type** (question / talking point / answer / fact-check / clarify)
+- **Application Preset**: Vite
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+- **Install Command**: `npm install`
 
-## Models
-- Transcription: `whisper-large-v3` (Groq)
-- Suggestions + expanded answers + chat: **`openai/gpt-oss-120b`** only (same Groq model for all; not user-configurable).
+### API key handling
+This app expects the **user to paste their own Groq API key** in Settings (stored locally in the browser).
 
-## Export format
-The **Export** button downloads a JSON file:
-- `transcript[]`: chunked transcript with `[startedAt, endedAt]`
-- `suggestionBatches[]`: newest-first batches, each with 3 cards
-- `chat[]`: continuous chat history for the session
+> If you want a server-side proxy (so the key never reaches the browser), the repo includes Vercel API route stubs under `api/groq/*`. Wire the frontend to call `/api/groq/*` and set `GROQ_API_KEY` in Vercel environment variables.
 
-## Deploy (submit a public URL)
+## Screenshots
+See the mock-style 3-column layout in the UI (Transcript · Live Suggestions · Chat).
 
-This is a static **Vite** app. Set the project **root** to `twinmind-live-suggestions` if your repo contains other folders.
-
-### Netlify
-1. **New site from Git** → pick the repo.
-2. **Base directory**: `twinmind-live-suggestions`.
-3. Build: `npm run build`, Publish: `dist` (see `netlify.toml`).
-4. Deploy — use the `*.netlify.app` URL (or your custom domain).
-
-### Cloudflare Pages / Replit / etc.
-Same idea: install deps, `npm run build`, serve the `dist` folder as static files.
-
-## Notes / tradeoffs
-- Mic segments use **stop/restart `MediaRecorder`** each `transcriptionChunkMs` so each blob is a valid file for Groq Whisper (Chrome-friendly). **Refresh** ends the current segment early (`stop`) then runs suggestions.
-- Suggestions use non-streaming JSON + validation; chat / expanded answers use streaming where applicable.
-
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
