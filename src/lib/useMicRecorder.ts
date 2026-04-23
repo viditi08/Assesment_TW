@@ -26,7 +26,9 @@ export function useMicRecorder(args: {
   onSegmentEnd?: () => void
 }) {
   const argsRef = useRef(args)
-  argsRef.current = args
+  useEffect(() => {
+    argsRef.current = args
+  }, [args])
 
   const [isRecording, setIsRecording] = useState(false)
   const mediaStreamRef = useRef<MediaStream | null>(null)

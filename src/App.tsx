@@ -189,9 +189,9 @@ export default function App() {
         }
 
         const tNow = transcriptRef.current
+        // Don't auto-generate suggestions until we have at least one transcript chunk.
         if (reason === 'auto' && tNow.length === 0) {
           clearStatus()
-          setLastSuggestionSuccessAt(Date.now())
           return
         }
 
@@ -261,6 +261,8 @@ export default function App() {
     if (!settings.autoRefreshEnabled) return
     if (!mic.isRecording) return
     const handle = window.setInterval(() => {
+      // Avoid early calls (e.g. before first transcript line).
+      if (transcriptRef.current.length === 0) return
       void refreshSuggestions({ flushFirst: false, reason: 'auto' })
     }, settings.autoRefreshMs)
     return () => window.clearInterval(handle)

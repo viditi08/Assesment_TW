@@ -4,8 +4,12 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import type { ChatMessage } from '../domain/chat'
 
 const chatMarkdownComponents: Partial<Components> = {
-  a: ({ node: _node, ...props }) => (
+  a: ({ node, ...props }) => (
     <React.Fragment>
+      {(() => {
+        void node
+        return null
+      })()}
       <a {...props} target="_blank" rel="noopener noreferrer" />
     </React.Fragment>
   ),

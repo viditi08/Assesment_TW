@@ -128,6 +128,7 @@ export function mergeStoredAppSettings(parsed: unknown, initial: AppSettings): A
   if (!parsed || typeof parsed !== 'object') return initial
   const raw = parsed as Record<string, unknown>
   const { groqChatModel: _legacyModelRemoved, ...rest } = raw
+  void _legacyModelRemoved
   const merged: AppSettings = { ...initial, ...(rest as Partial<AppSettings>) }
   const allowedEffort = new Set<AppSettings['groqReasoningEffort']>(['', 'low', 'medium', 'high'])
   const e = merged.groqReasoningEffort

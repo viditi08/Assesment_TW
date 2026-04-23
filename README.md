@@ -14,10 +14,10 @@ A 3‑column meeting copilot that listens to your mic, builds a **live transcrip
 ## Core features (functional requirements)
 - **Mic + transcript**
   - Start/stop mic button.
-  - Transcript appends in chunks (segment length is configurable; **defaults are ~10s** for tighter live feedback — raise it in Settings if you want fewer Whisper calls and more per-segment context).
+  - Transcript appends in chunks roughly every **~30 seconds** while recording (steady-state), but the **first line appears faster** (a short warmup segment) so users get feedback quickly.
   - Auto-scrolls to the latest line.
 - **Live suggestions**
-  - Auto refresh while recording (interval configurable).
+  - Auto refresh while recording (defaults to **~30 seconds**, aligned to new transcript chunks).
   - Manual **Reload suggestions** flushes the current audio segment, then regenerates suggestions.
   - Each refresh yields **exactly 3** suggestions based on the most recent transcript window.
   - Suggestions are intended to vary by context: **question**, **talking point**, **answer**, **fact-check**, **clarify**.
