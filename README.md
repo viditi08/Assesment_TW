@@ -14,7 +14,7 @@ A 3‑column meeting copilot that listens to your mic, builds a **live transcrip
 ## Core features (functional requirements)
 - **Mic + transcript**
   - Start/stop mic button.
-  - Transcript appends in chunks (segment length is configurable; defaults optimized for responsiveness).
+  - Transcript appends in chunks (segment length is configurable; **defaults are ~10s** for tighter live feedback — raise it in Settings if you want fewer Whisper calls and more per-segment context).
   - Auto-scrolls to the latest line.
 - **Live suggestions**
   - Auto refresh while recording (interval configurable).
@@ -24,6 +24,7 @@ A 3‑column meeting copilot that listens to your mic, builds a **live transcrip
 - **Chat**
   - Clicking a suggestion adds it to chat and returns a detailed, practical answer.
   - Users can also type questions directly.
+  - Assistant messages render **Markdown** (lists, code, links); user messages stay plain text.
   - Session-only: no login required.
 - **Export**
   - Export the full session (transcript + every suggestion batch + full chat history) as JSON with timestamps.
@@ -36,6 +37,11 @@ A 3‑column meeting copilot that listens to your mic, builds a **live transcrip
 - **Two-tier UX**:
   - **Preview cards**: 2–4 sentences, immediately useful, concrete, actionable.
   - **Expanded answers**: longer-form, structured response with next steps; asks 1–2 targeted questions if context is insufficient.
+- **Recency + diversity**:
+  - The suggestion prompt highlights the **last few transcript lines** so the model weights what people just said.
+  - Server-side validation **retries** if a batch does not use **three distinct suggestion types** or if an `expand_prompt` is too generic (short / does not tie back to the card title).
+- **Type-aware expansion**:
+  - The expanded-answer prompt adds **type-specific** instructions (e.g. fact-check vs talking point vs question) so the long answer matches the card you clicked.
 - **Context windows (chars, not tokens)**:
   - Smaller window for suggestions for lower latency.
   - Larger window for expanded answers and chat for better grounding.
@@ -44,8 +50,9 @@ A 3‑column meeting copilot that listens to your mic, builds a **live transcrip
 
 ## Architecture notes (technical choices)
 - **Audio chunking**: uses *stop/restart* `MediaRecorder` per segment to ensure each blob is a valid media container (Chrome-friendly for Whisper).
-- **Suggestions validation**: parse + validate, then render **exactly 3** cards; retries on invalid output.
+- **Suggestions validation**: parse + validate, then render **exactly 3** cards; retries on invalid output (including **distinct types** and **non-generic expand prompts**).
 - **Streaming chat**: chat/expanded answers stream to reduce “time to first token”.
+- **UX guards**: rapid suggestion clicks do not start overlapping chat streams while a reply is already in flight.
 
 ## Export format
 The **Export** button downloads JSON:
@@ -76,5 +83,5 @@ This app expects the **user to paste their own Groq API key** in Settings (store
 > If you want a server-side proxy (so the key never reaches the browser), the repo includes Vercel API route stubs under `api/groq/*`. Wire the frontend to call `/api/groq/*` and set `GROQ_API_KEY` in Vercel environment variables.
 
 ## Screenshots
-See the mock-style 3-column layout in the UI (Transcript · Live Suggestions · Chat).
+This repository does not ship binary screenshots (keeps clones small). Run `npm run dev`, start the mic, and capture your own hero image if you want one for README or Vercel.
 

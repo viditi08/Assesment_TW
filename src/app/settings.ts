@@ -51,14 +51,14 @@ export function buildDefaultSettings(): AppSettings {
     /** Lower leaves more completion budget for strict JSON from `openai/gpt-oss-120b`. */
     groqReasoningEffort: 'low',
 
-    /** ~4.5s segments: transcript lines (and suggestions) track the mic quickly; raise in Settings if rate limits bite. */
-    transcriptionChunkMs: 4_500,
+    /** Default: ~10s segments; raise in Settings for fewer Whisper calls / more context. */
+    transcriptionChunkMs: 10_000,
     transcriptionLanguage: '',
     transcriptionPrompt: '',
 
     autoRefreshEnabled: true,
-    /** Slightly longer than a chunk: backup refresh while recording if a suggestion call was skipped (busy). */
-    autoRefreshMs: 5_000,
+    /** Default: ~10s; raise in Settings for fewer suggestion calls. */
+    autoRefreshMs: 10_000,
 
     // Keep this modest for latency. The prompt itself teaches the model to be specific.
     suggestionsContextChars: 8_000,
@@ -81,15 +81,17 @@ export function buildDefaultSettings(): AppSettings {
   }
 }
 
-const defaultSuggestionsPrompt = `You are an assistant that watches a live conversation transcript and produces exactly 3 high-value, context-aware suggestions.
+const defaultSuggestionsPrompt = `You are an expert meeting copilot that watches a live conversation transcript and produces exactly 3 high-value, context-aware suggestions.
 
 The user sees ONLY the preview lines unless they click — so previews must be immediately useful, concrete, and actionable.
 
 Requirements:
 - Output MUST be valid JSON and match the provided schema.
 - Return ONLY the raw JSON object (no markdown fences, no prose before or after).
-- Produce EXACTLY 3 suggestions. Each suggestion must be meaningfully different in type and utility.
+- Produce EXACTLY 3 suggestions.
+- The 3 suggestions MUST be of 3 DIFFERENT types — never repeat a type within a batch.
 - Each suggestion should be grounded in the recent transcript: quote or reference specific phrases (briefly) when helpful.
+- Recency matters: weight what was said in the last 30–60 seconds most heavily (the last 2–3 transcript lines).
 - Optimize for meeting usefulness: clarify ambiguity, propose a follow-up question, summarize an emerging decision, propose a next step, answer a question just asked, or fact-check a risky claim.
 - Avoid generic fluff. No "consider discussing X" unless you make it specific to what was said.
 
@@ -108,12 +110,12 @@ Return schema:
       "type": "question|talking_point|answer|fact_check|clarify",
       "title": "short title (<= 60 chars)",
       "preview": "2-4 sentences. Already valuable alone.",
-      "expand_prompt": "A short instruction for the detailed answer, specific to THIS suggestion."
+      "expand_prompt": "A short instruction for the detailed answer, specific to THIS suggestion. Must reference the transcript and tell the assistant exactly what to do."
     }
   ]
 }`
 
-const defaultExpandedPrompt = `You are a helpful assistant. The user clicked a suggestion and wants a detailed, practical response.
+const defaultExpandedPrompt = `You are a helpful meeting copilot. The user clicked a suggestion and wants a detailed, practical response.
 
 Rules:
 - Use the transcript context. Be specific and relevant to what was said.
@@ -147,11 +149,12 @@ export function mergeStoredAppSettings(parsed: unknown, initial: AppSettings): A
   return merged
 }
 
-const defaultChatPrompt = `You are a meeting copilot. Answer the user's question with full transcript context.
+const defaultChatPrompt = `You are a meeting copilot embedded in a live conversation. Answer the user's question using the transcript context.
 
 Rules:
-- Be concise but complete (aim for 6-12 bullet lines unless the question needs more).
-- If needed, propose 2-3 follow-up questions.
-- If the user asks for a message they can say, provide a ready-to-speak version.
+- Be concise, but not robotic. Use bullets only when they help.
+- Prefer concrete, meeting-ready outputs (options, tradeoffs, suggested wording, next steps).
+- If you’re missing critical context, ask 1–2 targeted follow-up questions (not a long list).
+- If the user asks for something to say out loud, provide a ready-to-speak version.
 `
 

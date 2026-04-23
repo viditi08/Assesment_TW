@@ -11,6 +11,13 @@ export function buildSuggestionPrompt(args: {
   nowIso: string
 }): Message[] {
   const t = formatTranscriptWindow(args.transcript, args.settings.suggestionsContextChars)
+  const last = args.transcript.slice(-3)
+  const lastLines =
+    last.length === 0
+      ? '(empty)'
+      : last
+          .map((c) => `- ${c.text}`)
+          .join('\n')
 
   return [
     { role: 'system', content: args.settings.suggestionsPrompt },
@@ -19,6 +26,10 @@ export function buildSuggestionPrompt(args: {
       content: [
         `Now: ${args.nowIso}`,
         `Task: Produce exactly 3 fresh suggestions based on the most recent transcript context.`,
+        `Recency focus: prioritize what was said most recently (last 2–3 lines; last ~10–30s in typical cadence).`,
+        ``,
+        `Last lines (highest weight):`,
+        lastLines,
         ``,
         `Recent transcript (most recent last):`,
         t || '(empty transcript)',
@@ -61,6 +72,39 @@ export function buildExpandedAnswerPrompt(args: {
   const t = formatTranscriptWindow(args.transcript, args.settings.expandedContextChars)
   const history = clipChatHistory(args.chat, 20)
 
+  const typeGuidance =
+    args.suggestion.type === 'fact_check'
+      ? [
+          `Format:`,
+          `- Start with a 1–2 sentence verdict: likely true / likely false / unclear.`,
+          `- Then a checklist of what to verify + how (sources, logs, metrics).`,
+          `- Call out assumptions and uncertainty explicitly.`,
+        ].join('\n')
+      : args.suggestion.type === 'talking_point'
+        ? [
+            `Format:`,
+            `- Provide a ready-to-speak script (2–5 sentences).`,
+            `- Then 2–4 supporting bullets (why it matters, tradeoffs, next step).`,
+          ].join('\n')
+        : args.suggestion.type === 'question'
+          ? [
+              `Format:`,
+              `- Provide the exact question to ask (one sentence).`,
+              `- Then why it matters + what decisions it unlocks.`,
+              `- Provide 1–2 plausible answer paths and how you’d respond.`,
+            ].join('\n')
+          : args.suggestion.type === 'answer'
+            ? [
+                `Format:`,
+                `- Answer directly first (2–4 sentences).`,
+                `- Then short bullets for details, tradeoffs, and next steps.`,
+              ].join('\n')
+            : [
+                `Format:`,
+                `- Explain the concept plainly in this meeting’s context.`,
+                `- Provide an example / analogy and a concrete next step.`,
+              ].join('\n')
+
   return [
     { role: 'system', content: args.settings.expandedPrompt },
     {
@@ -75,6 +119,8 @@ export function buildExpandedAnswerPrompt(args: {
         ``,
         `Instruction for expanded answer (from the suggester):`,
         args.suggestion.expandPrompt,
+        ``,
+        typeGuidance,
         ``,
         `Transcript context:`,
         t || '(empty transcript)',

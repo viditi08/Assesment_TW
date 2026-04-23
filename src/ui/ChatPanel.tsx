@@ -1,5 +1,15 @@
+import * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import type { ChatMessage } from '../domain/chat'
+
+const chatMarkdownComponents: Partial<Components> = {
+  a: ({ node: _node, ...props }) => (
+    <React.Fragment>
+      <a {...props} target="_blank" rel="noopener noreferrer" />
+    </React.Fragment>
+  ),
+}
 
 export function ChatPanel(props: {
   messages: ChatMessage[]
@@ -14,7 +24,9 @@ export function ChatPanel(props: {
   }, [props.messages.length, props.isBusy])
 
   const send = async () => {
-    const text = draft
+    if (props.isBusy) return
+    const text = draft.trim()
+    if (!text) return
     setDraft('')
     await props.onSend(text)
   }
@@ -45,7 +57,13 @@ export function ChatPanel(props: {
                   <span className="tmPill">{m.role}</span>
                   <span className="tmMeta">{new Date(m.createdAt).toLocaleTimeString()}</span>
                 </div>
-                <div className="tmChatText">{m.content}</div>
+                {m.role === 'user' ? (
+                  <div className="tmChatText tmChatTextPlain">{m.content}</div>
+                ) : (
+                  <div className="tmChatMd">
+                    <ReactMarkdown components={chatMarkdownComponents}>{m.content}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             ))}
             <div ref={bottomRef} />

@@ -277,6 +277,28 @@ export async function groqSuggestionsWithRetries(args: {
   reasoningEffort?: GroqReasoningEffort
 }): Promise<ParsedSuggestions> {
   const base = args.messages
+  const isExpandPromptSpecific = (title: string, expand: string) => {
+    const t = (title ?? '').trim().toLowerCase()
+    const e = (expand ?? '').trim()
+    if (e.length < 28) return false
+    if (!/[a-zA-Z]/.test(e)) return false
+    const words = t.split(/[^a-z0-9]+/).filter((w) => w.length >= 4)
+    if (words.length === 0) return true
+    return words.some((w) => e.toLowerCase().includes(w))
+  }
+
+  const validateBatch = (parsed: ParsedSuggestions) => {
+    const types = parsed.suggestions.map((s) => s.type)
+    if (new Set(types).size !== 3) {
+      throw new Error(`Suggestions must have 3 distinct types; got: ${types.join(', ')}`)
+    }
+    for (const s of parsed.suggestions) {
+      if (!isExpandPromptSpecific(s.title, s.expand_prompt)) {
+        throw new Error(`Suggestion expand_prompt is too generic for "${s.title}".`)
+      }
+    }
+  }
+
   for (let attempt = 0; attempt < 5; attempt++) {
     const messages: ChatMessageParam[] =
       attempt === 0
@@ -286,7 +308,7 @@ export async function groqSuggestionsWithRetries(args: {
             {
               role: 'user',
               content:
-                'Your previous reply failed validation. Output ONLY a JSON object: {"suggestions":[...]} with "suggestions" length EXACTLY 3. Each item: id (string), type (question|talking_point|answer|fact_check|clarify), title, preview (2–4 useful sentences alone), expand_prompt (non-empty string). No markdown fences, no extra text.',
+                'Your previous reply failed validation. Output ONLY a JSON object: {"suggestions":[...]} with "suggestions" length EXACTLY 3.\n\nHard requirements:\n- The 3 suggestions MUST be 3 DIFFERENT types (no duplicates).\n- Each item needs: id (string), type (question|talking_point|answer|fact_check|clarify), title, preview (2–4 useful sentences alone), expand_prompt.\n- expand_prompt must be specific to this card (mention the suggestion’s title or a quoted transcript phrase) and instruct the expanded answer format.\n- No markdown fences, no extra text.',
             },
           ]
 
@@ -299,7 +321,10 @@ export async function groqSuggestionsWithRetries(args: {
       reasoningEffort: args.reasoningEffort,
     })
     try {
-      if (text.trim()) return parseSuggestionsModelOutput(text)
+      if (!text.trim()) continue
+      const parsed = parseSuggestionsModelOutput(text)
+      validateBatch(parsed)
+      return parsed
     } catch {
       /* try again */
     }

@@ -77,9 +77,25 @@ function extractSuggestionRows(parsed: unknown): unknown[] {
   return []
 }
 
-function defaultExpandPrompt(title: string, preview: string): string {
+function defaultExpandPrompt(
+  type: ParsedSuggestion['type'],
+  title: string,
+  preview: string,
+): string {
   const head = title.trim() || preview.slice(0, 120)
-  return `Give a detailed, transcript-grounded answer. Focus on: ${head}. Expand the preview with bullets and concrete next steps; if the transcript is thin, end with 1–2 targeted questions.`
+  const pv = preview.trim().slice(0, 400)
+  switch (type) {
+    case 'fact_check':
+      return `Fact-check "${head}" using the transcript. Start with likely true/false/unclear, list what evidence would settle it, name what you still don't know, and end with 1–2 verification steps. Ground every claim in the transcript; quote a short phrase if possible. Preview context: ${pv}`
+    case 'talking_point':
+      return `Write a ready-to-speak script (2–5 sentences) for "${head}" that fits this meeting, then add 2–4 bullets on why it matters and what to watch for. Tie it to the transcript; preview: ${pv}`
+    case 'question':
+      return `Answer what "${head}" is trying to unlock in this meeting: why ask it now, what decisions it affects, and 1–2 good follow-ups depending on answers. Use the transcript; preview: ${pv}`
+    case 'answer':
+      return `Give a direct answer to "${head}" grounded in the transcript (2–4 sentences first), then bullets for nuance, risks, and next steps. If evidence is thin, say what's missing and ask 1 targeted question. Preview: ${pv}`
+    default:
+      return `Explain "${head}" in this meeting's context: plain-language explanation, one concrete example, and a next step. Use the transcript; preview: ${pv}`
+  }
 }
 
 /**
@@ -135,7 +151,7 @@ function parseSuggestionRow(row: unknown, index: number): ParsedSuggestion | nul
   if (!title) title = 'Suggestion'
   if (!preview) return null
 
-  if (!expand_prompt) expand_prompt = defaultExpandPrompt(title, preview)
+  if (!expand_prompt) expand_prompt = defaultExpandPrompt(type, title, preview)
 
   return { id, type, title, preview, expand_prompt }
 }

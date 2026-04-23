@@ -325,6 +325,7 @@ export default function App() {
 
   const onSuggestionClick = useCallback(
     async (suggestion: SuggestionCard) => {
+      if (isChatBusy) return
       const userText = suggestion.title
       const trimmed = userText.trim()
       if (!trimmed) return
@@ -382,7 +383,7 @@ export default function App() {
         setIsChatBusy(false)
       }
     },
-    [apiKey, chat, chatModel, clearStatus, settings, transcript],
+    [apiKey, chat, chatModel, clearStatus, isChatBusy, settings, transcript],
   )
 
   const onExport = useCallback(() => {
