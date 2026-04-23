@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import './App.css'
@@ -48,6 +49,8 @@ export default function App() {
   /** Resets the “auto-refresh in Ns” countdown after each successful suggestion run. */
   const [lastSuggestionSuccessAt, setLastSuggestionSuccessAt] = useState(() => Date.now())
   const [suggestionCountdownTick, setSuggestionCountdownTick] = useState(0)
+  /** Used to avoid regenerating suggestions when transcript hasn't advanced. */
+  const lastSuggestedChunkIdRef = useRef<string | null>(null)
 
   /** Skip auto suggestion refresh after daily-token (TPD) errors — manual Refresh still runs. */
   const pauseAutoSuggestionsUntilRef = useRef(0)
@@ -157,6 +160,8 @@ export default function App() {
 
   const mic = useMicRecorder({
     chunkMs: settings.transcriptionChunkMs,
+    warmupChunkMs: 10_000,
+    warmupSegments: 1,
     onChunk,
     enabled: hasKey,
     onSegmentStart,
@@ -191,6 +196,11 @@ export default function App() {
         }
 
         const latestChunkId = tNow.at(-1)?.id ?? null
+        if (reason === 'auto' && latestChunkId && latestChunkId === lastSuggestedChunkIdRef.current) {
+          clearStatus()
+          setLastSuggestionSuccessAt(Date.now())
+          return
+        }
 
         showStatus('Generating suggestions…')
         const prompt = buildSuggestionPrompt({
@@ -224,6 +234,7 @@ export default function App() {
         }
 
         setSuggestionBatches((prev) => [batch, ...prev])
+        lastSuggestedChunkIdRef.current = latestChunkId
         pauseAutoSuggestionsUntilRef.current = 0
         setLastSuggestionSuccessAt(Date.now())
         clearStatus()
@@ -423,9 +434,9 @@ export default function App() {
           </div>
           <div className="tmSubtle">
             {hasKey ? (
-              <>
+              <React.Fragment>
                 Groq key set · Mic: <strong>{mic.isRecording ? 'on' : 'off'}</strong>
-              </>
+              </React.Fragment>
             ) : (
               <strong>Paste your Groq API key in Settings</strong>
             )}
@@ -452,6 +463,7 @@ export default function App() {
             segmentPipelineBusy={segmentPipelineBusy}
             hasKey={hasKey}
             chunkMs={settings.transcriptionChunkMs}
+            warmupChunkMs={10_000}
             onToggleMic={() => (mic.isRecording ? void mic.stop() : void mic.start())}
           />
         </section>

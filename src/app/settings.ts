@@ -51,14 +51,14 @@ export function buildDefaultSettings(): AppSettings {
     /** Lower leaves more completion budget for strict JSON from `openai/gpt-oss-120b`. */
     groqReasoningEffort: 'low',
 
-    /** Default: ~10s segments; raise in Settings for fewer Whisper calls / more context. */
-    transcriptionChunkMs: 10_000,
+    /** Steady-state segment size for transcription (warmup segment is shorter for faster first line). */
+    transcriptionChunkMs: 30_000,
     transcriptionLanguage: '',
     transcriptionPrompt: '',
 
     autoRefreshEnabled: true,
-    /** Default: ~10s; raise in Settings for fewer suggestion calls. */
-    autoRefreshMs: 10_000,
+    /** Default: ~30s; suggestions refresh when new transcript chunks arrive. */
+    autoRefreshMs: 30_000,
 
     // Keep this modest for latency. The prompt itself teaches the model to be specific.
     suggestionsContextChars: 8_000,

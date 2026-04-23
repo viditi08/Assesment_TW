@@ -14,6 +14,7 @@ export function TranscriptPanel(props: {
   segmentPipelineBusy?: boolean
   hasKey: boolean
   chunkMs: number
+  warmupChunkMs?: number
   onToggleMic: () => void
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null)

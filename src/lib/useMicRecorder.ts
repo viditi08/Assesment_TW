@@ -9,6 +9,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  */
 export function useMicRecorder(args: {
   chunkMs: number
+  /** Optional warmup segment length for faster first transcript line. */
+  warmupChunkMs?: number
+  /** How many warmup segments to run before using `chunkMs` (default 1). */
+  warmupSegments?: number
   enabled: boolean
   onChunk: (
     blob: Blob,
@@ -63,8 +67,11 @@ export function useMicRecorder(args: {
 
   const runSegmentLoop = useCallback(
     async (stream: MediaStream) => {
+      let segIndex = 0
       while (recordingActiveRef.current && stream.active) {
-        const { chunkMs, onChunk } = argsRef.current
+        const { chunkMs, warmupChunkMs, warmupSegments = 1, onChunk } = argsRef.current
+        const effectiveChunkMs =
+          warmupChunkMs && segIndex < warmupSegments ? Math.max(500, warmupChunkMs) : Math.max(500, chunkMs)
         const mimeType = pickMimeType()
         const chunks: Blob[] = []
 
@@ -143,8 +150,10 @@ export function useMicRecorder(args: {
             } catch {
               done()
             }
-          }, chunkMs)
+          }, effectiveChunkMs)
         })
+
+        segIndex += 1
       }
 
       recordingActiveRef.current = false
