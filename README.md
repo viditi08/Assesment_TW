@@ -83,4 +83,4 @@ This app expects the **user to paste their own Groq API key** in Settings (store
 > If you want a server-side proxy (so the key never reaches the browser), the repo includes Vercel API route stubs under `api/groq/*`. Wire the frontend to call `/api/groq/*` and set `GROQ_API_KEY` in Vercel environment variables.
 
 ## 🚀 Live Demo
-https://your-vercel-link.vercel.app
+https://assesment-tw-three.vercel.app/
