@@ -81,7 +81,3 @@ This repo is a standard **Vite** build.
 This app expects the **user to paste their own Groq API key** in Settings (stored locally in the browser).
 
 > If you want a server-side proxy (so the key never reaches the browser), the repo includes Vercel API route stubs under `api/groq/*`. Wire the frontend to call `/api/groq/*` and set `GROQ_API_KEY` in Vercel environment variables.
-
-## Screenshots
-This repository does not ship binary screenshots (keeps clones small). Run `npm run dev`, start the mic, and capture your own hero image if you want one for README or Vercel.
-
